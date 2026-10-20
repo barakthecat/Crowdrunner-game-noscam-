@@ -77,8 +77,13 @@ const enemyMesh = makeInst(enemyGeometry(), enemyMat, MAXE, RED);
 const ringGeo = new THREE.RingGeometry(0.17, 0.25, 14).rotateX(-Math.PI / 2);
 const playerRing = makeInst(ringGeo, new THREE.MeshBasicMaterial({ color: 0x2f6df6 }), MAXV);
 const enemyRing = makeInst(ringGeo, new THREE.MeshBasicMaterial({ color: 0xe0362c }), MAXE);
-const bulletMesh = makeInst(new THREE.BoxGeometry(0.08, 0.08, 0.7),
-  new THREE.MeshBasicMaterial({ color: 0xffc94a }), MAXB);
+// tracers: a bright yellow core inside a saturated orange shell. Additive glow
+// washes out on the light road, so both stay solid colors.
+const bulletMesh = makeInst(new THREE.BoxGeometry(0.12, 0.12, 1.1),
+  new THREE.MeshBasicMaterial({ color: 0xffea6b, toneMapped: false }), MAXB);
+const bulletGlow = makeInst(new THREE.BoxGeometry(0.24, 0.24, 1.3),
+  new THREE.MeshBasicMaterial({ color: 0xff4d00, transparent: true, opacity: 0.85, depthWrite: false, toneMapped: false }), MAXB);
+bulletMesh.renderOrder = bulletGlow.renderOrder = 5;
 const partMesh = makeInst(new THREE.BoxGeometry(0.16, 0.16, 0.16),
   new THREE.MeshBasicMaterial({ color: 0xffffff }), MAXP, new THREE.Color(1, 1, 1));
 partMesh.count = MAXP;
@@ -672,7 +677,8 @@ function spawnBullets(dt) {
     fireAcc -= 1;
     if (bullets.length >= MAXB) { fireAcc = 0; break; }
     const i = (Math.random() * player.vis) | 0;
-    bullets.push({ x: player.x + ox[i], d: player.d - oz[i] + 0.3, life: RANGE / BULLET_SPEED, dmg });
+    // leave from the rifle muzzle (right side, ahead of the soldier)
+    bullets.push({ x: player.x + ox[i] + 0.17, d: player.d - oz[i] + 0.45, life: RANGE / BULLET_SPEED, dmg });
   }
 }
 
@@ -752,9 +758,12 @@ function updateBullets(dt) {
     if (hit || b.life <= 0) { bullets[i] = bullets[bullets.length - 1]; bullets.pop(); }
   }
   const n = Math.min(bullets.length, MAXB);
-  for (let i = 0; i < n; i++) setInst(bulletMesh, i, bullets[i].x, 0.5, -bullets[i].d, Q_ID, 1);
-  bulletMesh.count = n;
-  bulletMesh.instanceMatrix.needsUpdate = true;
+  for (let i = 0; i < n; i++) {
+    setInst(bulletMesh, i, bullets[i].x, 0.6, -bullets[i].d, Q_ID, 1);
+    setInst(bulletGlow, i, bullets[i].x, 0.6, -bullets[i].d, Q_ID, 1);
+  }
+  bulletMesh.count = bulletGlow.count = n;
+  bulletMesh.instanceMatrix.needsUpdate = bulletGlow.instanceMatrix.needsUpdate = true;
 }
 
 // ---------- crowd visuals
