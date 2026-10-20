@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { generateLevel, applyOp, HALF } from './level.js';
 import {
-  soldierGeometry, stoneTexture, woodTexture, Label, HpBar,
+  soldierGeometry, enemyGeometry, makeUnitMaterial, stoneTexture, woodTexture, Label, HpBar,
   makeGateFace, drawGateFace, gateText, gateIsGood, makeBoss, makeGun,
 } from './models.js';
 import { sfx, unlockAudio, setMuted } from './audio.js';
@@ -60,8 +60,8 @@ const woodTex = woodTexture();
 // ---------- instanced crowds, bullets, particles
 const BLUE = new THREE.Color(0x2f6df6);
 const RED = new THREE.Color(0xe0362c);
-const soldierGeo = soldierGeometry();
-const unitMat = new THREE.MeshLambertMaterial({ vertexColors: true });
+const playerMat = makeUnitMaterial();
+const enemyMat = makeUnitMaterial();
 
 function makeInst(geo, mat, n, color) {
   const m = new THREE.InstancedMesh(geo, mat, n);
@@ -72,8 +72,8 @@ function makeInst(geo, mat, n, color) {
   scene.add(m);
   return m;
 }
-const playerMesh = makeInst(soldierGeo, unitMat, MAXV, BLUE);
-const enemyMesh = makeInst(soldierGeo, unitMat, MAXE, RED);
+const playerMesh = makeInst(soldierGeometry(), playerMat, MAXV, BLUE);
+const enemyMesh = makeInst(enemyGeometry(), enemyMat, MAXE, RED);
 const ringGeo = new THREE.RingGeometry(0.17, 0.25, 14).rotateX(-Math.PI / 2);
 const playerRing = makeInst(ringGeo, new THREE.MeshBasicMaterial({ color: 0x2f6df6 }), MAXV);
 const enemyRing = makeInst(ringGeo, new THREE.MeshBasicMaterial({ color: 0xe0362c }), MAXE);
@@ -615,6 +615,7 @@ function animateBoss(dt) {
   if (!B) return;
   B.group.position.set(B.x, 0, -B.d);
   const t = time;
+  let lean = 0.08;
   if (B.state === 'walk') {
     B.legL.rotation.x = Math.sin(t * 6) * 0.5;
     B.legR.rotation.x = -Math.sin(t * 6) * 0.5;
@@ -629,6 +630,7 @@ function animateBoss(dt) {
     else if (ph < 1.05) a = -2.9 + ((ph - 0.85) / 0.2) * 1.7; // slam down
     else a = -1.2 + ((ph - 1.05) / 0.45) * 0.6;          // recover
     B.armR.rotation.x = a;
+    lean = ph < 0.85 ? -0.12 * (ph / 0.85) : ph < 1.05 ? -0.12 + ((ph - 0.85) / 0.2) * 0.42 : 0.3 - ((ph - 1.05) / 0.45) * 0.22;
   } else if (B.state === 'idle') {
     B.armR.rotation.x = -0.5 + Math.sin(t * 2) * 0.1;
     B.group.position.y = Math.sin(t * 2) * 0.05;
@@ -636,6 +638,11 @@ function animateBoss(dt) {
     B.fall = Math.min(1, B.fall + dt * 1.6);
     B.group.rotation.x = -B.fall * Math.PI / 2;
     B.group.position.y = -B.fall * 0.5;
+  }
+  if (B.state !== 'dead') {
+    B.upper.rotation.x += (lean - B.upper.rotation.x) * Math.min(1, dt * 12);
+    B.head.rotation.y = Math.sin(t * 1.3) * 0.25;
+    B.upper.scale.set(1, 1 + Math.sin(t * 2.4) * 0.015, 1);
   }
   B.flash = Math.max(0, B.flash - dt * 6);
   const f = B.flash;
@@ -768,14 +775,15 @@ function updateCrowdVisual(dt) {
     ox[i] += (tx - ox[i]) * k;
     oz[i] += (dz * sz - oz[i]) * k;
     grow[i] = Math.min(1, grow[i] + dt * 4);
-    const ph = time * 13 + i * 1.7;
-    const bob = running ? Math.abs(Math.sin(ph)) * 0.12 : 0;
-    _e.set(running ? -0.15 : 0, 0, running ? Math.sin(ph) * 0.08 : 0);
+    _e.set(running ? -0.12 : 0, 0, 0);
     _q.setFromEuler(_e);
     const x = player.x + ox[i], z = -player.d + oz[i];
-    setInst(playerMesh, i, x, bob, z, _q, grow[i]);
+    setInst(playerMesh, i, x, 0, z, _q, grow[i]);
     setInst(playerRing, i, x, 0.03, z, Q_ID, grow[i]);
   }
+  const pu = playerMat.userData.uniforms;
+  pu.uTime.value = time;
+  pu.uRun.value += ((running ? 1 : 0) - pu.uRun.value) * k;
   playerMesh.count = playerRing.count = vis;
   playerMesh.instanceMatrix.needsUpdate = playerRing.instanceMatrix.needsUpdate = true;
   crowdLabel.sprite.visible = player.count > 0 && mode !== 'menu' || (mode === 'menu' && player.count > 0);
@@ -785,8 +793,8 @@ function updateCrowdVisual(dt) {
 }
 
 const Q_BACK = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI);
-function updateEnemyVisual() {
-  let idx = 0;
+function updateEnemyVisual(dt) {
+  let idx = 0, anyCharging = false;
   if (!L) return;
   for (const e of L.enemies) {
     if (!e.alive) continue;
@@ -796,10 +804,10 @@ function updateEnemyVisual() {
     if (!show) continue;
     const vis = Math.min(e.n, 150);
     const charging = mode === 'play' && rel < 20 && player.engaged !== e;
+    anyCharging = anyCharging || charging;
     for (let i = 0; i < vis && idx < MAXE; i++, idx++) {
       const [dx, dz] = slot(i);
-      const ph = time * 13 + i * 2.1;
-      const bob = charging ? Math.abs(Math.sin(ph)) * 0.12 : Math.abs(Math.sin(time * 3 + i)) * 0.03;
+      const bob = charging ? 0 : Math.abs(Math.sin(time * 3 + i)) * 0.03;
       const x = Math.max(-HALF + 0.25, Math.min(HALF - 0.25, e.x + dx));
       const z = -e.d - dz;
       setInst(enemyMesh, idx, x, bob, z, Q_BACK, 1);
@@ -809,6 +817,9 @@ function updateEnemyVisual() {
     e.label.set(String(e.n), '#e0362c', '#ffffff');
     e.label.sprite.position.set(e.x, 1.4 + er * 0.2, -e.d);
   }
+  const eu = enemyMat.userData.uniforms;
+  eu.uTime.value = time;
+  eu.uRun.value += ((anyCharging ? 1 : 0) - eu.uRun.value) * Math.min(1, dt * 8);
   enemyMesh.count = enemyRing.count = idx;
   enemyMesh.instanceMatrix.needsUpdate = enemyRing.instanceMatrix.needsUpdate = true;
 }
@@ -976,11 +987,11 @@ function frame(now) {
   }
   updateBullets(dt);
   updateCrowdVisual(dt);
-  updateEnemyVisual();
+  updateEnemyVisual(dt);
   updateProps(dt);
   animateBoss(dt);
   updateParticles(dt);
-  updateCamera(dt);
+  if (!window.__cr?.freeCam) updateCamera(dt);
   if (mode === 'play') updateHud();
   renderer.render(scene, camera);
 }
@@ -998,5 +1009,5 @@ boot();
 
 // test hook: open the page with ?debug to inspect state from the console
 if (location.search.includes('debug')) {
-  window.__cr = { player, get L() { return L; }, get boss() { return boss; }, get mode() { return mode; } };
+  window.__cr = { camera, player, get L() { return L; }, get boss() { return boss; }, get mode() { return mode; } };
 }

@@ -4,30 +4,123 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 export const FONT = '"Lilita One", "Arial Black", Impact, sans-serif';
 
-function colored(geo, hex) {
+// ---------- soldiers
+// Each part carries: color (fixed or a shade of the team color), team (1 = tinted by
+// the instance color, 0 = fixed accent), and rig (x = swing sign, y = pivot height)
+// so legs and the free arm can swing in the vertex shader.
+function part(geo, hex, team = 0, swing = 0, pivot = 0) {
   const c = new THREE.Color(hex);
   const n = geo.attributes.position.count;
-  const arr = new Float32Array(n * 3);
-  for (let i = 0; i < n; i++) { arr[i * 3] = c.r; arr[i * 3 + 1] = c.g; arr[i * 3 + 2] = c.b; }
-  geo.setAttribute('color', new THREE.BufferAttribute(arr, 3));
+  const col = new Float32Array(n * 3), tm = new Float32Array(n), rig = new Float32Array(n * 2);
+  for (let i = 0; i < n; i++) {
+    col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
+    tm[i] = team;
+    rig[i * 2] = swing; rig[i * 2 + 1] = pivot;
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  geo.setAttribute('team', new THREE.BufferAttribute(tm, 1));
+  geo.setAttribute('rig', new THREE.BufferAttribute(rig, 2));
   return geo;
 }
-
-// A little helmeted soldier, facing -z. Vertex colors get tinted per instance.
-export function soldierGeometry() {
-  const W = 0xffffff, S = 0xd8dde6, D = 0x4a4a50;
-  const parts = [
-    colored(new THREE.CylinderGeometry(0.14, 0.19, 0.4, 8).translate(0, 0.4, 0), W),
-    colored(new THREE.SphereGeometry(0.13, 10, 8).translate(0, 0.72, 0), W),
-    colored(new THREE.CylinderGeometry(0.17, 0.17, 0.04, 10).translate(0, 0.78, 0), S),
-    colored(new THREE.SphereGeometry(0.135, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2).translate(0, 0.78, 0), S),
-    colored(new THREE.BoxGeometry(0.09, 0.22, 0.1).translate(-0.07, 0.11, 0), W),
-    colored(new THREE.BoxGeometry(0.09, 0.22, 0.1).translate(0.07, 0.11, 0), W),
-    colored(new THREE.BoxGeometry(0.06, 0.07, 0.4).translate(0.15, 0.46, -0.15), D),
-  ];
+function merge(parts) {
   const geo = mergeGeometries(parts);
   parts.forEach((p) => p.dispose());
   return geo;
+}
+const TEAM = 0xffffff, TEAM_DARK = 0x8c8c8c, TEAM_MID = 0xc4c4c4;
+const BOOT = 0x26262c, IRON = 0x3b3f47, BONE = 0xf1ead8, SKIN = 0xf2c7a0, SILVER = 0xdfe5ec;
+const HIP = 0.25, SHOULDER = 0.53;
+
+function legs(parts) {
+  for (const side of [-1, 1]) {
+    const x = side * 0.075, sw = side;
+    parts.push(part(new THREE.BoxGeometry(0.1, 0.2, 0.11).translate(x, 0.15, 0), TEAM_DARK, 1, sw, HIP));
+    parts.push(part(new THREE.BoxGeometry(0.12, 0.07, 0.16).translate(x, 0.035, -0.02), BOOT, 0, sw, HIP));
+  }
+}
+
+// Blue squad: rounded, sturdy hero shapes. Landmark from behind/above is the
+// white crest on an oversized helmet, plus the backpack and side-held rifle.
+export function soldierGeometry() {
+  const p = [];
+  legs(p);
+  p.push(part(new THREE.CylinderGeometry(0.15, 0.17, 0.3, 10).translate(0, 0.39, 0), TEAM, 1));
+  p.push(part(new THREE.CylinderGeometry(0.175, 0.175, 0.05, 10).translate(0, 0.27, 0), BOOT, 0));
+  p.push(part(new THREE.BoxGeometry(0.2, 0.22, 0.1).translate(0, 0.42, 0.14), TEAM_DARK, 1));
+  for (const x of [-0.17, 0.17]) {
+    p.push(part(new THREE.SphereGeometry(0.075, 8, 6).translate(x, 0.52, 0), SILVER, 0));
+  }
+  p.push(part(new THREE.SphereGeometry(0.13, 10, 8).translate(0, 0.66, 0), SKIN, 0));
+  p.push(part(new THREE.SphereGeometry(0.17, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.55).translate(0, 0.68, 0), TEAM, 1));
+  p.push(part(new THREE.CylinderGeometry(0.18, 0.18, 0.035, 12).translate(0, 0.67, 0), TEAM_MID, 1));
+  p.push(part(new THREE.BoxGeometry(0.05, 0.11, 0.3).translate(0, 0.87, 0.02), BONE, 0));
+  // rifle arm (fixed) and free arm (swings)
+  p.push(part(new THREE.CylinderGeometry(0.045, 0.04, 0.24, 6).translate(0.19, 0.42, -0.04), TEAM, 1));
+  p.push(part(new THREE.BoxGeometry(0.06, 0.08, 0.46).translate(0.17, 0.44, -0.16), BOOT, 0));
+  p.push(part(new THREE.BoxGeometry(0.03, 0.03, 0.06).translate(0.17, 0.45, -0.42), SILVER, 0));
+  p.push(part(new THREE.CylinderGeometry(0.045, 0.04, 0.26, 6).translate(-0.19, 0.41, 0), TEAM, 1, -1, SHOULDER));
+  return merge(p);
+}
+
+// Red enemies: angular, threatening shapes. Landmarks are bone horns on a dark
+// iron helmet, shoulder spikes, glowing eyes and a raised sword.
+export function enemyGeometry() {
+  const p = [];
+  legs(p);
+  p.push(part(new THREE.CylinderGeometry(0.2, 0.12, 0.32, 6).translate(0, 0.4, 0), TEAM, 1));
+  p.push(part(new THREE.CylinderGeometry(0.15, 0.15, 0.05, 6).translate(0, 0.26, 0), BOOT, 0));
+  for (const side of [-1, 1]) {
+    const spike = new THREE.ConeGeometry(0.05, 0.16, 4).rotateZ(-side * 0.6).translate(side * 0.2, 0.6, 0);
+    p.push(part(spike, BONE, 0));
+  }
+  p.push(part(new THREE.SphereGeometry(0.12, 8, 6).translate(0, 0.66, 0), TEAM_DARK, 1));
+  p.push(part(new THREE.CylinderGeometry(0.1, 0.16, 0.2, 6).translate(0, 0.72, 0), IRON, 0));
+  for (const side of [-1, 1]) {
+    const horn = new THREE.ConeGeometry(0.05, 0.27, 5).rotateZ(-side * 0.85).translate(side * 0.19, 0.85, 0);
+    p.push(part(horn, BONE, 0));
+  }
+  for (const x of [-0.05, 0.05]) {
+    p.push(part(new THREE.BoxGeometry(0.045, 0.025, 0.02).translate(x, 0.68, -0.155), 0xffd23a, 0));
+  }
+  // sword arm (raised blade) and shield arm (swings)
+  p.push(part(new THREE.CylinderGeometry(0.045, 0.04, 0.24, 5).translate(0.21, 0.44, 0), TEAM, 1));
+  p.push(part(new THREE.BoxGeometry(0.12, 0.03, 0.04).translate(0.22, 0.56, -0.02), IRON, 0));
+  p.push(part(new THREE.BoxGeometry(0.045, 0.36, 0.02).translate(0.22, 0.76, -0.02), SILVER, 0));
+  p.push(part(new THREE.CylinderGeometry(0.045, 0.04, 0.24, 5).translate(-0.21, 0.43, 0), TEAM, 1, -1, SHOULDER));
+  p.push(part(new THREE.CylinderGeometry(0.11, 0.11, 0.03, 8).rotateX(Math.PI / 2).translate(-0.24, 0.42, -0.06), IRON, 0, -1, SHOULDER));
+  return merge(p);
+}
+
+// Lambert material that tints only the team parts and swings rigged limbs.
+// Running amount and time are uniforms; each instance gets its own stride phase.
+export function makeUnitMaterial() {
+  const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
+  const uniforms = { uTime: { value: 0 }, uRun: { value: 0 } };
+  mat.userData.uniforms = uniforms;
+  mat.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, uniforms);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', `#include <common>
+attribute float team;
+attribute vec2 rig;
+uniform float uTime;
+uniform float uRun;`)
+      .replace('#include <beginnormal_vertex>', `#include <beginnormal_vertex>
+float stridePh = uTime * 13.0 + float(gl_InstanceID) * 1.7;
+float swingA = sin(stridePh) * rig.x * 0.75 * uRun;
+float swingC = cos(swingA), swingS = sin(swingA);
+objectNormal = vec3(objectNormal.x, objectNormal.y * swingC - objectNormal.z * swingS, objectNormal.y * swingS + objectNormal.z * swingC);`)
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+transformed.y -= rig.y;
+transformed = vec3(transformed.x, transformed.y * swingC - transformed.z * swingS, transformed.y * swingS + transformed.z * swingC);
+transformed.y += rig.y + abs(sin(stridePh)) * 0.07 * uRun;`)
+      .replace('#include <color_vertex>', `vColor = vec3(1.0);
+vColor *= color;
+#ifdef USE_INSTANCING_COLOR
+vColor *= mix(vec3(1.0), instanceColor.rgb, team);
+#endif`);
+  };
+  return mat;
 }
 
 function canvas(w, h) {
@@ -177,75 +270,96 @@ export function drawGateFace(face, text, good) {
   face.tex.needsUpdate = true;
 }
 
-// ---------- boss: a big red brute with a spiked club, facing +z (toward the player)
+// ---------- boss: inverted-triangle brute (huge shoulders, low head) with one
+// oversized spiked pauldron on the club side. Faces +z, toward the player.
 export function makeBoss() {
   const g = new THREE.Group();
-  const red = new THREE.MeshLambertMaterial({ color: 0xd23a2f });
-  const dark = new THREE.MeshLambertMaterial({ color: 0x8e1f19 });
-  const metal = new THREE.MeshLambertMaterial({ color: 0x7a7f88 });
-  const wood = new THREE.MeshLambertMaterial({ color: 0x7a4a22 });
-  const eye = new THREE.MeshBasicMaterial({ color: 0xffe14a });
-  const mats = [red, dark];
-
-  const leg = (x) => {
-    const p = new THREE.Group(); p.position.set(x, 1.25, 0);
-    const m = new THREE.Mesh(new THREE.BoxGeometry(0.62, 1.25, 0.62), dark); m.position.y = -0.62; p.add(m);
-    const boot = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.3, 0.85), metal); boot.position.set(0, -1.15, 0.08); p.add(boot);
-    g.add(p); return p;
+  const skin = new THREE.MeshLambertMaterial({ color: 0xc8322a });
+  const leather = new THREE.MeshLambertMaterial({ color: 0x4a2f22 });
+  const iron = new THREE.MeshLambertMaterial({ color: 0x4a4f58 });
+  const bone = new THREE.MeshLambertMaterial({ color: 0xf1ead8 });
+  const wood = new THREE.MeshLambertMaterial({ color: 0x6e4220 });
+  const glow = new THREE.MeshBasicMaterial({ color: 0xffd23a });
+  const mats = [skin, leather, iron];
+  const add = (parent, geo, mat, x = 0, y = 0, z = 0) => {
+    const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); parent.add(m); return m;
   };
-  const legL = leg(-0.5), legR = leg(0.5);
 
-  const belly = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), red);
-  belly.scale.set(1.25, 1.05, 1.0); belly.position.y = 2.15; g.add(belly);
-  const belt = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.2, 0.3, 16), wood);
-  belt.position.y = 1.6; g.add(belt);
-  const chest = new THREE.Mesh(new THREE.BoxGeometry(2.3, 0.75, 1.15), red);
-  chest.position.y = 2.95; g.add(chest);
-  const pads = [-1.2, 1.2].map((x) => {
-    const p = new THREE.Mesh(new THREE.SphereGeometry(0.5, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), metal);
-    p.position.set(x, 3.2, 0); g.add(p); return p;
-  });
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.48, 14, 10), red);
-  head.position.y = 3.7; g.add(head);
-  const helm = new THREE.Mesh(new THREE.SphereGeometry(0.52, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2), metal);
-  helm.position.y = 3.78; g.add(helm);
-  const horn = (x) => {
-    const h = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.5, 8), metal);
-    h.position.set(x, 4.2, 0); h.rotation.z = -x * 0.8; g.add(h);
+  // short, thick legs
+  const leg = (side) => {
+    const p = new THREE.Group(); p.position.set(side * 0.55, 1.15, 0); g.add(p);
+    add(p, new THREE.BoxGeometry(0.72, 0.85, 0.72), leather, 0, -0.42, 0);
+    add(p, new THREE.BoxGeometry(0.85, 0.35, 1.0), iron, 0, -0.98, 0.1);
+    const toe = add(p, new THREE.ConeGeometry(0.12, 0.3, 4), bone, 0, -0.98, 0.7);
+    toe.rotation.x = Math.PI / 2;
+    return p;
   };
-  horn(-0.38); horn(0.38);
-  for (const x of [-0.17, 0.17]) {
-    const e = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 6), eye);
-    e.position.set(x, 3.72, 0.43); g.add(e);
+  const legL = leg(-1), legR = leg(1);
+
+  // upper body pivots at the hips so he can lean into a slam
+  const upper = new THREE.Group(); upper.position.y = 1.15; g.add(upper);
+  add(upper, new THREE.BoxGeometry(1.7, 0.45, 1.05), leather, 0, 0.1, 0);
+  const plate = add(upper, new THREE.CylinderGeometry(0.3, 0.3, 0.08, 16), bone, 0, 0.12, 0.55);
+  plate.rotation.x = Math.PI / 2;
+  for (const x of [-0.1, 0.1]) add(upper, new THREE.SphereGeometry(0.06, 6, 4), iron, x, 0.16, 0.6);
+  const torso = add(upper, new THREE.CylinderGeometry(1.3, 0.75, 1.65, 6), skin, 0, 1.1, 0);
+  torso.scale.z = 0.62;
+  add(upper, new THREE.BoxGeometry(1.5, 0.6, 0.18), iron, 0, 1.45, 0.62);
+  add(upper, new THREE.BoxGeometry(0.15, 1.6, 0.12), leather, 0.3, 1.15, 0.66).rotation.z = 0.55;
+
+  // small head sunk between the shoulders
+  const headG = new THREE.Group(); headG.position.y = 2.05; upper.add(headG);
+  add(headG, new THREE.SphereGeometry(0.4, 14, 10), skin, 0, 0.1, 0.05);
+  add(headG, new THREE.SphereGeometry(0.46, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2), iron, 0, 0.2, 0);
+  for (const side of [-1, 1]) {
+    const horn = add(headG, new THREE.ConeGeometry(0.13, 0.85, 8), bone, side * 0.55, 0.55, 0);
+    horn.rotation.z = -side * 1.0;
+  }
+  add(headG, new THREE.BoxGeometry(0.55, 0.22, 0.32), skin, 0, -0.18, 0.25);
+  for (const side of [-1, 1]) {
+    add(headG, new THREE.ConeGeometry(0.06, 0.24, 6), bone, side * 0.19, -0.02, 0.38);
+    add(headG, new THREE.SphereGeometry(0.075, 8, 6), glow, side * 0.15, 0.13, 0.38);
   }
 
-  const arm = (x) => {
-    const p = new THREE.Group(); p.position.set(x, 3.0, 0);
-    const a = new THREE.Mesh(new THREE.CylinderGeometry(0.27, 0.23, 1.4, 10), red); a.position.y = -0.7; p.add(a);
-    const f = new THREE.Mesh(new THREE.SphereGeometry(0.3, 10, 8), dark); f.position.y = -1.45; p.add(f);
-    g.add(p); return p;
+  // arms: pivots at the shoulders (rotation.x drives the club swing)
+  const arm = (side) => {
+    const p = new THREE.Group(); p.position.set(side * 1.45, 1.8, 0); upper.add(p);
+    add(p, new THREE.CylinderGeometry(0.34, 0.28, 1.45, 10), skin, 0, -0.72, 0);
+    add(p, new THREE.CylinderGeometry(0.32, 0.32, 0.4, 10), iron, 0, -1.15, 0);
+    add(p, new THREE.SphereGeometry(0.38, 12, 8), skin, 0, -1.5, 0);
+    return p;
   };
-  const armL = arm(-1.4), armR = arm(1.4);
-  armL.rotation.z = -0.15;
-  // club held in the right fist, pointing forward relative to the arm
-  const club = new THREE.Group(); club.position.y = -1.45; armR.add(club);
-  const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.11, 1.4, 8), wood);
-  handle.rotation.x = Math.PI / 2; handle.position.z = 0.6; club.add(handle);
-  const knob = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.26, 1.0, 10), wood);
-  knob.rotation.x = Math.PI / 2; knob.position.z = 1.6; club.add(knob);
-  for (let i = 0; i < 8; i++) {
-    const s = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.3, 6), metal);
-    const a = (i / 8) * Math.PI * 2;
-    s.position.set(Math.cos(a) * 0.36, Math.sin(a) * 0.36, 1.5 + (i % 2) * 0.3);
+  const armL = arm(-1), armR = arm(1);
+  armL.rotation.z = -0.18;
+  // asymmetric armor: spiked pauldron on the club arm, plain strap on the other
+  const pad = add(upper, new THREE.SphereGeometry(0.72, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2), iron, 1.45, 1.85, 0);
+  for (let i = 0; i < 3; i++) {
+    const sp = add(upper, new THREE.ConeGeometry(0.12, 0.55, 6), bone, 1.2 + i * 0.28, 2.45 - Math.abs(i - 1) * 0.12, 0);
+    sp.rotation.z = -0.25 - i * 0.2;
+  }
+  add(upper, new THREE.SphereGeometry(0.45, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2), leather, -1.45, 1.85, 0);
+  const pads = [pad];
+
+  // spiked club in the right fist, pointing forward relative to the arm
+  const club = new THREE.Group(); club.position.y = -1.5; armR.add(club);
+  const handle = add(club, new THREE.CylinderGeometry(0.1, 0.12, 1.5, 8), wood, 0, 0, 0.65);
+  handle.rotation.x = Math.PI / 2;
+  const head = add(club, new THREE.CylinderGeometry(0.5, 0.32, 1.25, 10), wood, 0, 0, 1.85);
+  head.rotation.x = Math.PI / 2;
+  const band = add(club, new THREE.CylinderGeometry(0.47, 0.47, 0.14, 10), iron, 0, 0, 1.5);
+  band.rotation.x = Math.PI / 2;
+  for (let i = 0; i < 10; i++) {
+    const a = (i / 10) * Math.PI * 2;
+    const r = 0.46 - (i % 2) * 0.06;
+    const s = add(club, new THREE.ConeGeometry(0.08, 0.34, 6), iron, Math.cos(a) * r, Math.sin(a) * r, 1.75 + (i % 2) * 0.4);
     s.rotation.z = a - Math.PI / 2;
-    club.add(s);
   }
 
-  const shadow = new THREE.Mesh(new THREE.CircleGeometry(1.8, 24).rotateX(-Math.PI / 2),
+  const shadow = new THREE.Mesh(new THREE.CircleGeometry(2.0, 24).rotateX(-Math.PI / 2),
     new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.25, depthWrite: false }));
   shadow.position.y = 0.03; g.add(shadow);
 
-  return { group: g, armR, armL, legL, legR, mats, pads };
+  return { group: g, upper, head: headG, armR, armL, legL, legR, mats, pads };
 }
 
 export function makeGun() {
