@@ -121,6 +121,7 @@
   .result-sub { margin: 0; text-align: center; color: var(--paper); font-size: 15px; line-height: 1.45; text-wrap: balance; }
   .result-coins { display: flex; justify-content: center; align-items: center; gap: 8px; font-family: var(--display); font-size: 28px; color: var(--gold); }
   .result-coins .coin { width: 22px; height: 22px; }
+  .version { color: var(--muted); font-size: 12px; opacity: 0.7; font-variant-numeric: tabular-nums; }
   .loading { position: fixed; inset: 0; display: grid; place-items: center; font-family: var(--display); font-size: 24px; color: var(--muted); z-index: 1; }
   body.ready .loading { display: none; }
   @media (prefers-reduced-motion: reduce) { .pop, .banner { animation: none; transition: none; } }
@@ -174,6 +175,7 @@
     <button class="play" id="play" type="button">Play</button>
     <div class="row" style="justify-content:center">
       <button class="ghost" id="mute" type="button" aria-pressed="true">Sound on</button>
+      <span class="version">v4</span>
     </div>
   </div>
 </div>
